@@ -53,6 +53,10 @@ var soldier_skeleton: Skeleton3D = null
 var soldier_materials: Array[Material] = []
 var soldier_original_colors: Array[Color] = []
 var base_visuals_y: float = 0.0
+var bone_left_leg: int = -1
+var bone_right_leg: int = -1
+var bone_left_arm: int = -1
+var bone_right_arm: int = -1
 
 # --- Animation State ---
 var bob_timer: float  = 0.0
@@ -404,10 +408,10 @@ func _animate_limbs(delta: float) -> void:
 
 
 func _animate_soldier_skeleton(delta: float) -> void:
-	var left_leg_idx = soldier_skeleton.find_bone("mixamorig_LeftUpLeg_062")
-	var right_leg_idx = soldier_skeleton.find_bone("mixamorig_RightUpLeg_057")
-	var left_arm_idx = soldier_skeleton.find_bone("mixamorig_LeftArm_011")
-	var right_arm_idx = soldier_skeleton.find_bone("mixamorig_RightArm_035")
+	var left_leg_idx = bone_left_leg
+	var right_leg_idx = bone_right_leg
+	var left_arm_idx = bone_left_arm
+	var right_arm_idx = bone_right_arm
 	
 	var speed_2d: float = Vector2(velocity.x, velocity.z).length()
 	if speed_2d > 0.1:
@@ -513,6 +517,10 @@ func _setup_soldier_skin() -> void:
 	
 	soldier_skeleton = _find_skeleton(soldier_instance)
 	if soldier_skeleton:
+		bone_left_leg = soldier_skeleton.find_bone("mixamorig_LeftUpLeg_062")
+		bone_right_leg = soldier_skeleton.find_bone("mixamorig_RightUpLeg_057")
+		bone_left_arm = soldier_skeleton.find_bone("mixamorig_LeftArm_011")
+		bone_right_arm = soldier_skeleton.find_bone("mixamorig_RightArm_035")
 		var bone_attach = BoneAttachment3D.new()
 		bone_attach.name = "RightHandAttachment"
 		bone_attach.bone_name = "mixamorig_RightHand_037"
