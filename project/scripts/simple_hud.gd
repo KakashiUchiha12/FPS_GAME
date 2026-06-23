@@ -11,6 +11,7 @@ extends CanvasLayer
 var player: Node = null
 var hitmarker_ref: Control = null
 var upgrade_label: Label = null
+var last_health: float = 100.0
 
 func _ready() -> void:
 	reload_label.visible = false
@@ -22,6 +23,15 @@ func _ready() -> void:
 		hm.set_script(hitmarker_script)
 		add_child(hm)
 		hitmarker_ref = hm
+		
+	# Instantiate DamageOverlay programmatically
+	var damage_overlay_script = load("res://scripts/damage_overlay.gd")
+	if damage_overlay_script:
+		var overlay = Control.new()
+		overlay.name = "DamageOverlay"
+		overlay.set_script(damage_overlay_script)
+		add_child(overlay)
+		move_child(overlay, 0) # Render behind crosshair/labels
 
 	# Instantiate Level Up Upgrade Label programmatically
 	upgrade_label = Label.new()
@@ -41,6 +51,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	player = get_tree().get_first_node_in_group("player")
 	if player:
+		last_health = player.health
 		player.health_changed.connect(_on_health_changed)
 		player.aim_changed.connect(_on_aim_changed)
 		player.ammo_changed.connect(_on_ammo_changed)
@@ -60,6 +71,15 @@ func _ready() -> void:
 
 func _on_health_changed(current: float, maximum: float) -> void:
 	health_bar.value = (current / maximum) * 100.0
+	
+	if current < last_health:
+		var diff = last_health - current
+		var pct = diff / maximum
+		var overlay = get_node_or_null("DamageOverlay")
+		if overlay:
+			overlay.trigger_hit(pct)
+			
+	last_health = current
 
 
 func _on_aim_changed(aiming: bool) -> void:

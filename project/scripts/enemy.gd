@@ -16,7 +16,7 @@ enum State { IDLE, PATROL, ALERT, CHASE, ATTACK, DEAD }
 @export var max_health: float    = 90.0
 @export var move_speed: float    = 4.0
 @export var chase_speed: float   = 6.2
-@export var attack_damage: float = 14.0
+@export var attack_damage: float = 24.0
 @export var attack_range: float  = 100.0
 @export var attack_interval: float = 0.95
 @export var detection_range: float = 100.0
@@ -52,6 +52,7 @@ var soldier_instance: Node3D = null
 var soldier_skeleton: Skeleton3D = null
 var soldier_materials: Array[Material] = []
 var soldier_original_colors: Array[Color] = []
+var base_visuals_y: float = 0.0
 
 # --- Animation State ---
 var bob_timer: float  = 0.0
@@ -84,6 +85,7 @@ func _ready() -> void:
 	health = max_health
 	player = get_tree().get_first_node_in_group("player")
 	start_position = global_position
+	base_visuals_y = visuals.position.y
 
 	# Make unique material so color changes don't affect all enemies
 	if torso:
@@ -152,8 +154,12 @@ func _state_patrol(delta: float) -> void:
 					nav_agent.target_position = random_patrol_target
 					random_patrol_timer = randf_range(6.0, 12.0)
 			
-		random_patrol_timer -= delta
-		_move_toward_target(move_speed)
+		if random_patrol_target != Vector3.ZERO:
+			random_patrol_timer -= delta
+			_move_toward_target(move_speed)
+		else:
+			velocity.x = 0
+			velocity.z = 0
 		return
 
 	var target: Node = get_node_or_null(NodePath(patrol_points[patrol_index]))
@@ -371,7 +377,7 @@ func _animate_idle_bob(delta: float) -> void:
 		return
 	bob_timer += delta * 2.0
 	var bob: float = sin(bob_timer) * 0.035
-	visuals.position.y = bob
+	visuals.position.y = base_visuals_y + bob
 
 
 func _animate_limbs(delta: float) -> void:
@@ -503,6 +509,7 @@ func _setup_soldier_skin() -> void:
 	soldier_instance = scene.instantiate()
 	visuals.add_child(soldier_instance)
 	soldier_instance.scale = Vector3(0.01, 0.01, 0.01)
+	soldier_instance.position = Vector3(0.0, -base_visuals_y, 0.0)
 	
 	soldier_skeleton = _find_skeleton(soldier_instance)
 	if soldier_skeleton:
