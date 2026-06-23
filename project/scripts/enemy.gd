@@ -173,7 +173,7 @@ func _state_alert(delta: float) -> void:
 
 
 func _state_chase(_delta: float) -> void:
-	if not player:
+	if not player or not player.is_inside_tree():
 		_set_state(State.PATROL)
 		return
 	nav_agent.target_position = player.global_position
@@ -187,7 +187,7 @@ func _state_chase(_delta: float) -> void:
 
 
 func _state_attack(delta: float) -> void:
-	if not player:
+	if not player or not player.is_inside_tree():
 		_set_state(State.PATROL)
 		return
 
@@ -281,7 +281,7 @@ func _spawn_tracer(start: Vector3, end: Vector3) -> void:
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 func _has_line_of_sight() -> bool:
-	if not player:
+	if not is_inside_tree() or not player or not player.is_inside_tree():
 		return false
 	var space_state := get_world_3d().direct_space_state
 	var from := global_position + Vector3(0.0, 1.5, 0.0)
@@ -295,7 +295,7 @@ func _has_line_of_sight() -> bool:
 
 
 func _check_player_visibility() -> void:
-	if not player or current_state == State.DEAD:
+	if not is_inside_tree() or not player or not player.is_inside_tree() or current_state == State.DEAD:
 		return
 	var dist: float = global_position.distance_to(player.global_position)
 	if dist > detection_range:
