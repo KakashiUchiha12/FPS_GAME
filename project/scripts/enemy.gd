@@ -513,7 +513,7 @@ func _setup_soldier_skin() -> void:
 	soldier_instance = scene.instantiate()
 	visuals.add_child(soldier_instance)
 	soldier_instance.scale = Vector3(0.01, 0.01, 0.01)
-	soldier_instance.position = Vector3(0.0, -base_visuals_y, 0.0)
+	soldier_instance.position = Vector3(0.0, -0.9, 0.0)
 	
 	soldier_skeleton = _find_skeleton(soldier_instance)
 	if soldier_skeleton:
