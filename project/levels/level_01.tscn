@@ -226,16 +226,6 @@ surface_material_override/0 = SubResource("Mat_Wall")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -60, 3, 0)
 shape = SubResource("Shape_WallW")
 
-[node name="Ceiling" type="StaticBody3D" parent="Geometry" unique_id=827259100]
-
-[node name="CeilingMesh" type="MeshInstance3D" parent="Geometry/Ceiling" unique_id=1365072015]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.25, 0)
-mesh = SubResource("Mesh_Ceiling")
-surface_material_override/0 = SubResource("Mat_Ceiling")
-
-[node name="CeilingShape" type="CollisionShape3D" parent="Geometry/Ceiling" unique_id=1937463745]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.25, 0)
-shape = SubResource("Shape_Ceiling")
 
 [node name="InnerV1" type="StaticBody3D" parent="Geometry"]
 
