@@ -1,0 +1,6 @@
+# Godot-specific ignores
+project/.godot/
+
+# Large binaries/archives
+Godot_v4.7-stable_linux.x86_64
+*.zip

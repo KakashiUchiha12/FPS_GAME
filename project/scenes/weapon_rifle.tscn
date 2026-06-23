@@ -1,0 +1,185 @@
+[gd_scene load_steps=22 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapon.gd" id="1"]
+
+; ── Materials ──────────────────────────────────────────────────────────────────
+
+[sub_resource type="StandardMaterial3D" id="Mat_Metal"]
+albedo_color = Color(0.12, 0.13, 0.15, 1)
+metallic = 0.9
+roughness = 0.2
+
+[sub_resource type="StandardMaterial3D" id="Mat_Wood"]
+albedo_color = Color(0.38, 0.22, 0.07, 1)
+roughness = 0.9
+metallic = 0.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_Flash"]
+albedo_color = Color(1.0, 0.92, 0.6, 1)
+emission_enabled = true
+emission = Color(1.0, 0.88, 0.4, 1)
+emission_energy_multiplier = 6.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_Holo_Body"]
+albedo_color = Color(0.08, 0.09, 0.1, 1)
+metallic = 0.8
+roughness = 0.3
+
+[sub_resource type="StandardMaterial3D" id="Mat_Holo_Lens"]
+transparency = 1
+albedo_color = Color(0.8, 0.9, 1.0, 0.06)
+roughness = 0.15
+metallic = 0.1
+
+[sub_resource type="StandardMaterial3D" id="Mat_Holo_Reticle"]
+albedo_color = Color(0.2, 0.9, 0.3, 1)
+emission_enabled = true
+emission = Color(0.2, 0.9, 0.3, 1)
+emission_energy_multiplier = 9.0
+
+; ── Meshes ─────────────────────────────────────────────────────────────────────
+
+[sub_resource type="BoxMesh" id="Mesh_Body"]
+size = Vector3(0.04, 0.065, 0.36)
+
+[sub_resource type="CylinderMesh" id="Mesh_Barrel"]
+top_radius = 0.011
+bottom_radius = 0.011
+height = 0.28
+
+[sub_resource type="BoxMesh" id="Mesh_Stock"]
+size = Vector3(0.03, 0.055, 0.13)
+
+[sub_resource type="BoxMesh" id="Mesh_Mag"]
+size = Vector3(0.026, 0.085, 0.042)
+
+[sub_resource type="BoxMesh" id="Mesh_Grip"]
+size = Vector3(0.032, 0.075, 0.042)
+
+[sub_resource type="BoxMesh" id="Mesh_Holo_Base"]
+size = Vector3(0.022, 0.012, 0.08)
+
+[sub_resource type="BoxMesh" id="Mesh_Frame_TopBottom"]
+size = Vector3(0.032, 0.004, 0.02)
+
+[sub_resource type="BoxMesh" id="Mesh_Frame_LeftRight"]
+size = Vector3(0.004, 0.024, 0.02)
+
+[sub_resource type="BoxMesh" id="Mesh_Holo_Lens"]
+size = Vector3(0.024, 0.024, 0.002)
+
+[sub_resource type="BoxMesh" id="Mesh_Reticle_H"]
+size = Vector3(0.006, 0.0006, 0.0006)
+
+[sub_resource type="BoxMesh" id="Mesh_Reticle_V"]
+size = Vector3(0.0006, 0.006, 0.0006)
+
+[sub_resource type="SphereMesh" id="Mesh_FlashSphere"]
+radius = 0.028
+height = 0.056
+
+; ── Scene Tree ─────────────────────────────────────────────────────────────────
+
+[node name="WeaponRifle" type="Node3D"]
+script = ExtResource("1")
+
+; Main body / receiver
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.0, -0.18)
+mesh = SubResource("Mesh_Body")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+; Barrel
+[node name="Barrel" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.006, -0.42)
+rotation = Vector3(1.5708, 0.0, 0.0)
+mesh = SubResource("Mesh_Barrel")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+; Stock
+[node name="Stock" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, -0.005, 0.05)
+mesh = SubResource("Mesh_Stock")
+surface_material_override/0 = SubResource("Mat_Wood")
+
+; Magazine
+[node name="Magazine" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, -0.075, -0.13)
+mesh = SubResource("Mesh_Mag")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+; Pistol grip
+[node name="Grip" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, -0.058, -0.05)
+rotation = Vector3(0.22, 0.0, 0.0)
+mesh = SubResource("Mesh_Grip")
+surface_material_override/0 = SubResource("Mat_Wood")
+
+; ── Holographic Sight (mounted on top of body) ────────────────────────────────
+
+[node name="HoloBase" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.038, -0.15)
+mesh = SubResource("Mesh_Holo_Base")
+surface_material_override/0 = SubResource("Mat_Holo_Body")
+
+[node name="HoloFrame" type="Node3D" parent="HoloBase"]
+position = Vector3(0.0, 0.02, 0.0)
+
+[node name="FrameBottom" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(0.0, -0.007, 0.0)
+mesh = SubResource("Mesh_Frame_TopBottom")
+surface_material_override/0 = SubResource("Mat_Holo_Body")
+
+[node name="FrameTop" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(0.0, 0.021, 0.0)
+mesh = SubResource("Mesh_Frame_TopBottom")
+surface_material_override/0 = SubResource("Mat_Holo_Body")
+
+[node name="FrameLeft" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(-0.014, 0.007, 0.0)
+mesh = SubResource("Mesh_Frame_LeftRight")
+surface_material_override/0 = SubResource("Mat_Holo_Body")
+
+[node name="FrameRight" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(0.014, 0.007, 0.0)
+mesh = SubResource("Mesh_Frame_LeftRight")
+surface_material_override/0 = SubResource("Mat_Holo_Body")
+
+; The lens that is see-through glass (Y=0.065 total offset from rifle root)
+[node name="HoloLens" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(0.0, 0.007, 0.008)
+mesh = SubResource("Mesh_Holo_Lens")
+surface_material_override/0 = SubResource("Mat_Holo_Lens")
+
+; Glowing 3D Reticle Crosshairs centered inside the sight lens frame
+[node name="ReticleH" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(0.0, 0.007, 0.009)
+mesh = SubResource("Mesh_Reticle_H")
+surface_material_override/0 = SubResource("Mat_Holo_Reticle")
+
+[node name="ReticleV" type="MeshInstance3D" parent="HoloBase/HoloFrame"]
+position = Vector3(0.0, 0.007, 0.009)
+mesh = SubResource("Mesh_Reticle_V")
+surface_material_override/0 = SubResource("Mat_Holo_Reticle")
+
+; ── Muzzle Point ─────────────────────────────────────────────────────────────
+
+[node name="MuzzlePoint" type="Node3D" parent="."]
+position = Vector3(0.0, 0.006, -0.56)
+
+[node name="MuzzleFlashMesh" type="MeshInstance3D" parent="MuzzlePoint"]
+visible = false
+mesh = SubResource("Mesh_FlashSphere")
+surface_material_override/0 = SubResource("Mat_Flash")
+
+[node name="MuzzleLight" type="OmniLight3D" parent="MuzzlePoint"]
+visible = false
+light_color = Color(1.0, 0.82, 0.35, 1)
+light_energy = 4.0
+omni_range = 3.5
+shadow_enabled = false
+
+; ── Audio ─────────────────────────────────────────────────────────────────────
+
+[node name="AudioPlayer" type="AudioStreamPlayer3D" parent="."]
+max_db = 6.0

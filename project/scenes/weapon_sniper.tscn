@@ -1,0 +1,169 @@
+[gd_scene load_steps=19 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapon.gd" id="1"]
+
+; ── Materials ──────────────────────────────────────────────────────────────────
+
+[sub_resource type="StandardMaterial3D" id="Mat_Metal"]
+albedo_color = Color(0.1, 0.11, 0.12, 1)
+metallic = 0.95
+roughness = 0.15
+
+[sub_resource type="StandardMaterial3D" id="Mat_Wood"]
+albedo_color = Color(0.24, 0.14, 0.04, 1)
+roughness = 0.9
+metallic = 0.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_Flash"]
+albedo_color = Color(1.0, 0.92, 0.6, 1)
+emission_enabled = true
+emission = Color(1.0, 0.88, 0.4, 1)
+emission_energy_multiplier = 6.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_Scope_Lens"]
+albedo_color = Color(0.1, 0.6, 0.8, 1)
+metallic = 0.9
+roughness = 0.1
+emission_enabled = true
+emission = Color(0.05, 0.3, 0.4, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_Black"]
+albedo_color = Color(0.0, 0.0, 0.0, 1)
+roughness = 1.0
+metallic = 0.0
+shading_mode = 0
+
+[sub_resource type="BoxMesh" id="Mesh_Crosshair_H"]
+size = Vector3(0.026, 0.0005, 0.0005)
+
+[sub_resource type="BoxMesh" id="Mesh_Crosshair_V"]
+size = Vector3(0.0005, 0.0005, 0.026)
+
+; ── Meshes ─────────────────────────────────────────────────────────────────────
+
+[sub_resource type="BoxMesh" id="Mesh_Body"]
+size = Vector3(0.04, 0.065, 0.45)
+
+[sub_resource type="CylinderMesh" id="Mesh_Barrel"]
+top_radius = 0.008
+bottom_radius = 0.008
+height = 0.65
+
+[sub_resource type="BoxMesh" id="Mesh_Stock"]
+size = Vector3(0.028, 0.07, 0.22)
+
+[sub_resource type="BoxMesh" id="Mesh_Grip"]
+size = Vector3(0.03, 0.07, 0.04)
+
+[sub_resource type="CylinderMesh" id="Mesh_Scope"]
+top_radius = 0.015
+bottom_radius = 0.015
+height = 0.16
+
+[sub_resource type="BoxMesh" id="Mesh_Scope_Mount"]
+size = Vector3(0.01, 0.02, 0.02)
+
+[sub_resource type="SphereMesh" id="Mesh_FlashSphere"]
+radius = 0.022
+height = 0.044
+
+; ── Scene Tree ─────────────────────────────────────────────────────────────────
+
+[node name="WeaponSniper" type="Node3D"]
+script = ExtResource("1")
+weapon_name = "Sniper Rifle"
+damage = 95.0
+fire_rate = 1.3
+mag_size = 5
+reserve_ammo = 15
+reload_time = 3.0
+is_automatic = false
+bullet_spread = 0.001
+range_max = 180.0
+
+; Main body / receiver
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.0, -0.2)
+mesh = SubResource("Mesh_Body")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+; Long Sniper Barrel
+[node name="Barrel" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.006, -0.65)
+rotation = Vector3(1.5708, 0.0, 0.0)
+mesh = SubResource("Mesh_Barrel")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+; Stock
+[node name="Stock" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, -0.015, 0.1)
+rotation = Vector3(-0.08, 0.0, 0.0)
+mesh = SubResource("Mesh_Stock")
+surface_material_override/0 = SubResource("Mat_Wood")
+
+; Grip
+[node name="Grip" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, -0.065, -0.05)
+rotation = Vector3(0.22, 0.0, 0.0)
+mesh = SubResource("Mesh_Grip")
+surface_material_override/0 = SubResource("Mat_Wood")
+
+; ── Scope (mounted on top of body) ────────────────────────────────────────────
+
+[node name="ScopeMount1" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.04, -0.15)
+mesh = SubResource("Mesh_Scope_Mount")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+[node name="ScopeMount2" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.04, -0.25)
+mesh = SubResource("Mesh_Scope_Mount")
+surface_material_override/0 = SubResource("Mat_Metal")
+
+[node name="ScopeTube" type="CSGCombiner3D" parent="."]
+position = Vector3(0.0, 0.06, -0.2)
+rotation = Vector3(1.5708, 0.0, 0.0)
+
+[node name="Outer" type="CSGCylinder3D" parent="ScopeTube"]
+radius = 0.016
+height = 0.16
+sides = 16
+material = SubResource("Mat_Metal")
+
+[node name="Inner" type="CSGCylinder3D" parent="ScopeTube"]
+radius = 0.014
+height = 0.18
+sides = 16
+operation = 2
+
+[node name="ReticleH" type="MeshInstance3D" parent="ScopeTube"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_Crosshair_H")
+surface_material_override/0 = SubResource("Mat_Black")
+
+[node name="ReticleV" type="MeshInstance3D" parent="ScopeTube"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_Crosshair_V")
+surface_material_override/0 = SubResource("Mat_Black")
+
+; ── Muzzle Point ─────────────────────────────────────────────────────────────
+
+[node name="MuzzlePoint" type="Node3D" parent="."]
+position = Vector3(0.0, 0.006, -0.985)
+
+[node name="MuzzleFlashMesh" type="MeshInstance3D" parent="MuzzlePoint"]
+visible = false
+mesh = SubResource("Mesh_FlashSphere")
+surface_material_override/0 = SubResource("Mat_Flash")
+
+[node name="MuzzleLight" type="OmniLight3D" parent="MuzzlePoint"]
+visible = false
+light_color = Color(1.0, 0.85, 0.35, 1)
+light_energy = 4.0
+omni_range = 3.5
+shadow_enabled = false
+
+; ── Audio ─────────────────────────────────────────────────────────────────────
+
+[node name="AudioPlayer" type="AudioStreamPlayer3D" parent="."]
+max_db = 6.0
