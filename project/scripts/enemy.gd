@@ -25,6 +25,13 @@ enum State { IDLE, PATROL, ALERT, CHASE, ATTACK, DEAD }
 @export_group("Patrol")
 @export var patrol_points: Array[StringName] = []
 
+@export_group("Appearance")
+@export var use_soldier_skin: bool = true
+
+@export_group("Weapon Attachment")
+@export var weapon_pos_offset: Vector3 = Vector3(0.0, 10.0, 15.0)
+@export var weapon_rot_offset: Vector3 = Vector3(0.0, -PI/2, PI/2)
+
 # --- State ---
 var current_state: State = State.IDLE
 var health: float
@@ -34,6 +41,17 @@ var patrol_index: int    = 0
 var player: Node3D       = null
 var body_mat: StandardMaterial3D   # unique material for hit flash
 var original_color: Color
+
+# --- Patrol/Random AI ---
+var start_position: Vector3
+var random_patrol_target: Vector3 = Vector3.ZERO
+var random_patrol_timer: float = 0.0
+
+# --- Soldier Skin Nodes ---
+var soldier_instance: Node3D = null
+var soldier_skeleton: Skeleton3D = null
+var soldier_materials: Array[Material] = []
+var soldier_original_colors: Array[Color] = []
 
 # --- Animation State ---
 var bob_timer: float  = 0.0
@@ -65,12 +83,16 @@ signal enemy_died
 func _ready() -> void:
 	health = max_health
 	player = get_tree().get_first_node_in_group("player")
+	start_position = global_position
 
 	# Make unique material so color changes don't affect all enemies
 	if torso:
 		body_mat = torso.get_surface_override_material(0).duplicate()
 		torso.set_surface_override_material(0, body_mat)
 		original_color = body_mat.albedo_color
+
+	if use_soldier_skin:
+		_setup_soldier_skin()
 
 	# Generate sounds
 	_snd_grunt = SoundGen.enemy_grunt()
@@ -81,8 +103,12 @@ func _ready() -> void:
 	_audio = AudioStreamPlayer3D.new()
 	add_child(_audio)
 
-	_set_state(State.PATROL if patrol_points.size() > 0 else State.IDLE)
 	bob_timer = randf_range(0.0, TAU)
+
+	if patrol_points.size() > 0 or use_soldier_skin:
+		_set_state(State.PATROL)
+	else:
+		_set_state(State.IDLE)
 
 
 func _physics_process(delta: float) -> void:
@@ -112,10 +138,24 @@ func _state_idle(_delta: float) -> void:
 	velocity.z = 0
 
 
-func _state_patrol(_delta: float) -> void:
+func _state_patrol(delta: float) -> void:
 	if patrol_points.is_empty():
-		_set_state(State.IDLE)
+		if random_patrol_target == Vector3.ZERO or nav_agent.is_navigation_finished() or random_patrol_timer <= 0.0:
+			var map = nav_agent.get_navigation_map()
+			if map.is_valid() and NavigationServer3D.map_get_iteration_id(map) > 0:
+				var random_dir = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
+				var random_dist = randf_range(4.0, 12.0)
+				var test_target = start_position + random_dir * random_dist
+				var closest = NavigationServer3D.map_get_closest_point(map, test_target)
+				if closest != Vector3.ZERO or start_position.length() < 0.1:
+					random_patrol_target = closest
+					nav_agent.target_position = random_patrol_target
+					random_patrol_timer = randf_range(6.0, 12.0)
+			
+		random_patrol_timer -= delta
+		_move_toward_target(move_speed)
 		return
+
 	var target: Node = get_node_or_null(NodePath(patrol_points[patrol_index]))
 	if target:
 		nav_agent.target_position = target.global_position
@@ -338,6 +378,10 @@ func _animate_limbs(delta: float) -> void:
 	if current_state == State.DEAD:
 		return
 
+	if use_soldier_skin and soldier_skeleton:
+		_animate_soldier_skeleton(delta)
+		return
+
 	var speed_2d: float = Vector2(velocity.x, velocity.z).length()
 	if speed_2d > 0.1:
 		walk_timer += delta * speed_2d * 2.6
@@ -353,12 +397,77 @@ func _animate_limbs(delta: float) -> void:
 		right_leg.rotation.x = lerp(right_leg.rotation.x, 0.0, 12.0 * delta)
 
 
+func _animate_soldier_skeleton(delta: float) -> void:
+	var left_leg_idx = soldier_skeleton.find_bone("mixamorig_LeftUpLeg_062")
+	var right_leg_idx = soldier_skeleton.find_bone("mixamorig_RightUpLeg_057")
+	var left_arm_idx = soldier_skeleton.find_bone("mixamorig_LeftArm_011")
+	var right_arm_idx = soldier_skeleton.find_bone("mixamorig_RightArm_035")
+	
+	var speed_2d: float = Vector2(velocity.x, velocity.z).length()
+	if speed_2d > 0.1:
+		walk_timer += delta * speed_2d * 2.6
+		var leg_swing = sin(walk_timer) * 0.45
+		var arm_swing = sin(walk_timer) * 0.45
+		
+		if left_leg_idx != -1:
+			soldier_skeleton.set_bone_pose_rotation(left_leg_idx, Quaternion(Vector3.RIGHT, -leg_swing))
+		if right_leg_idx != -1:
+			soldier_skeleton.set_bone_pose_rotation(right_leg_idx, Quaternion(Vector3.RIGHT, leg_swing))
+			
+		if current_state in [State.CHASE, State.ATTACK]:
+			# Aiming pose: arms forward
+			if right_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), -1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+			if left_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), 1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+		else:
+			# Patrolling/Idle: Swing arms
+			if left_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion(Vector3.RIGHT, arm_swing))
+			if right_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion(Vector3.RIGHT, -arm_swing))
+	else:
+		# Standing still
+		if current_state in [State.CHASE, State.ATTACK]:
+			# Aiming pose while standing still
+			if right_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), -1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+			if left_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), 1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+		else:
+			# Reset to rest pose
+			if left_leg_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(left_leg_idx, Quaternion.IDENTITY)
+			if right_leg_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(right_leg_idx, Quaternion.IDENTITY)
+			if left_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion.IDENTITY)
+			if right_arm_idx != -1:
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion.IDENTITY)
+
+
 func _animate_hit_flash() -> void:
-	if not body_mat:
-		return
-	var tween := create_tween()
-	tween.tween_property(body_mat, "albedo_color", Color(1.0, 1.0, 1.0, 1.0), 0.03)
-	tween.tween_property(body_mat, "albedo_color", original_color, 0.12)
+	if use_soldier_skin and not soldier_materials.is_empty():
+		var tween := create_tween()
+		tween.set_parallel(true)
+		for i in range(soldier_materials.size()):
+			var mat = soldier_materials[i]
+			tween.tween_property(mat, "albedo_color", Color(2.5, 2.5, 2.5, 1.0), 0.04)
+		
+		# Wait and tween back
+		var t_back := create_tween()
+		t_back.set_parallel(true)
+		await get_tree().create_timer(0.04).timeout
+		for i in range(soldier_materials.size()):
+			var mat = soldier_materials[i]
+			var orig = soldier_original_colors[i]
+			t_back.tween_property(mat, "albedo_color", orig, 0.12)
+	else:
+		if not body_mat:
+			return
+		var tween := create_tween()
+		tween.tween_property(body_mat, "albedo_color", Color(1.0, 1.0, 1.0, 1.0), 0.03)
+		tween.tween_property(body_mat, "albedo_color", original_color, 0.12)
 
 	# Scale pulse
 	var t3 := create_tween()
@@ -367,8 +476,12 @@ func _animate_hit_flash() -> void:
 
 
 func _animate_death() -> void:
-	if body_mat:
-		body_mat.albedo_color = Color(0.4, 0.1, 0.1, 1)
+	if use_soldier_skin:
+		for mat in soldier_materials:
+			mat.albedo_color = Color(0.4, 0.1, 0.1, 1.0)
+	else:
+		if body_mat:
+			body_mat.albedo_color = Color(0.4, 0.1, 0.1, 1)
 
 	var tween := create_tween()
 	tween.set_parallel(true)
@@ -379,3 +492,61 @@ func _animate_death() -> void:
 
 	await get_tree().create_timer(3.0).timeout
 	queue_free()
+
+
+func _setup_soldier_skin() -> void:
+	var scene = load("res://assets/models/soldier/scene.gltf")
+	if not scene:
+		push_warning("Failed to load soldier skin from res://assets/models/soldier/scene.gltf")
+		return
+
+	soldier_instance = scene.instantiate()
+	visuals.add_child(soldier_instance)
+	soldier_instance.scale = Vector3(0.01, 0.01, 0.01)
+	
+	soldier_skeleton = _find_skeleton(soldier_instance)
+	if soldier_skeleton:
+		var bone_attach = BoneAttachment3D.new()
+		bone_attach.name = "RightHandAttachment"
+		bone_attach.bone_name = "mixamorig_RightHand_037"
+		soldier_skeleton.add_child(bone_attach)
+		
+		var gun = $Visuals/RightArm/Gun
+		if gun:
+			gun.get_parent().remove_child(gun)
+			bone_attach.add_child(gun)
+			gun.scale = Vector3(100.0, 100.0, 100.0)
+			gun.position = weapon_pos_offset
+			gun.rotation = weapon_rot_offset
+	
+	_setup_soldier_materials(soldier_instance)
+	
+	if torso: torso.visible = false
+	if head: head.visible = false
+	if left_arm: left_arm.visible = false
+	if right_arm: right_arm.visible = false
+	if left_leg: left_leg.visible = false
+	if right_leg: right_leg.visible = false
+
+
+func _find_skeleton(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node
+	for child in node.get_children():
+		var res = _find_skeleton(child)
+		if res:
+			return res
+	return null
+
+
+func _setup_soldier_materials(node: Node) -> void:
+	if node is MeshInstance3D:
+		for i in range(node.get_mesh().get_surface_count()):
+			var mat = node.get_active_material(i)
+			if mat and mat is BaseMaterial3D:
+				var dupe_mat = mat.duplicate()
+				node.set_surface_override_material(i, dupe_mat)
+				soldier_materials.append(dupe_mat)
+				soldier_original_colors.append(dupe_mat.albedo_color)
+	for child in node.get_children():
+		_setup_soldier_materials(child)
