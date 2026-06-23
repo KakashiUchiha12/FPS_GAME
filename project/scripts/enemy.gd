@@ -57,6 +57,10 @@ var bone_left_leg: int = -1
 var bone_right_leg: int = -1
 var bone_left_arm: int = -1
 var bone_right_arm: int = -1
+var rest_left_leg: Quaternion = Quaternion.IDENTITY
+var rest_right_leg: Quaternion = Quaternion.IDENTITY
+var rest_left_arm: Quaternion = Quaternion.IDENTITY
+var rest_right_arm: Quaternion = Quaternion.IDENTITY
 
 # --- Animation State ---
 var bob_timer: float  = 0.0
@@ -408,6 +412,12 @@ func _animate_limbs(delta: float) -> void:
 
 
 func _animate_soldier_skeleton(delta: float) -> void:
+	if not soldier_skeleton:
+		return
+		
+	# Reset all bone poses to their default rest pose first
+	soldier_skeleton.reset_bone_poses()
+	
 	var left_leg_idx = bone_left_leg
 	var right_leg_idx = bone_right_leg
 	var left_arm_idx = bone_left_arm
@@ -420,40 +430,37 @@ func _animate_soldier_skeleton(delta: float) -> void:
 		var arm_swing = sin(walk_timer) * 0.45
 		
 		if left_leg_idx != -1:
-			soldier_skeleton.set_bone_pose_rotation(left_leg_idx, Quaternion(Vector3.RIGHT, -leg_swing))
+			soldier_skeleton.set_bone_pose_rotation(left_leg_idx, rest_left_leg * Quaternion(Vector3.RIGHT, -leg_swing))
 		if right_leg_idx != -1:
-			soldier_skeleton.set_bone_pose_rotation(right_leg_idx, Quaternion(Vector3.RIGHT, leg_swing))
+			soldier_skeleton.set_bone_pose_rotation(right_leg_idx, rest_right_leg * Quaternion(Vector3.RIGHT, leg_swing))
 			
 		if current_state in [State.CHASE, State.ATTACK]:
 			# Aiming pose: arms forward
 			if right_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), -1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, rest_right_arm * Quaternion(Vector3(0.0, 1.0, 0.0), -1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
 			if left_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), 1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, rest_left_arm * Quaternion(Vector3(0.0, 1.0, 0.0), 1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
 		else:
-			# Patrolling/Idle: Swing arms
+			# Patrolling/Idle: Swing arms naturally downwards (A-pose + swing)
 			if left_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion(Vector3.RIGHT, arm_swing))
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, rest_left_arm * Quaternion(Vector3.FORWARD, -1.2) * Quaternion(Vector3.RIGHT, arm_swing))
 			if right_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion(Vector3.RIGHT, -arm_swing))
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, rest_right_arm * Quaternion(Vector3.FORWARD, 1.2) * Quaternion(Vector3.RIGHT, -arm_swing))
 	else:
 		# Standing still
 		if current_state in [State.CHASE, State.ATTACK]:
 			# Aiming pose while standing still
 			if right_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), -1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, rest_right_arm * Quaternion(Vector3(0.0, 1.0, 0.0), -1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
 			if left_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion(Vector3(0.0, 1.0, 0.0), 1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, rest_left_arm * Quaternion(Vector3(0.0, 1.0, 0.0), 1.5) * Quaternion(Vector3(1.0, 0.0, 0.0), 0.4))
 		else:
-			# Reset to rest pose
-			if left_leg_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(left_leg_idx, Quaternion.IDENTITY)
-			if right_leg_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(right_leg_idx, Quaternion.IDENTITY)
+			# Natural A-pose standing breathing bob (arms down)
+			var breath = sin(Time.get_ticks_msec() * 0.002) * 0.02
 			if left_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, Quaternion.IDENTITY)
+				soldier_skeleton.set_bone_pose_rotation(left_arm_idx, rest_left_arm * Quaternion(Vector3.FORWARD, -1.2 + breath))
 			if right_arm_idx != -1:
-				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, Quaternion.IDENTITY)
+				soldier_skeleton.set_bone_pose_rotation(right_arm_idx, rest_right_arm * Quaternion(Vector3.FORWARD, 1.2 - breath))
 
 
 func _animate_hit_flash() -> void:
@@ -513,7 +520,7 @@ func _setup_soldier_skin() -> void:
 	soldier_instance = scene.instantiate()
 	visuals.add_child(soldier_instance)
 	soldier_instance.scale = Vector3(0.01, 0.01, 0.01)
-	soldier_instance.position = Vector3(0.0, -0.9, 0.0)
+	soldier_instance.position = Vector3(0.0, -0.12, 0.0)
 	
 	soldier_skeleton = _find_skeleton(soldier_instance)
 	if soldier_skeleton:
@@ -521,6 +528,15 @@ func _setup_soldier_skin() -> void:
 		bone_right_leg = soldier_skeleton.find_bone("mixamorig_RightUpLeg_057")
 		bone_left_arm = soldier_skeleton.find_bone("mixamorig_LeftArm_011")
 		bone_right_arm = soldier_skeleton.find_bone("mixamorig_RightArm_035")
+		
+		if bone_left_leg != -1:
+			rest_left_leg = soldier_skeleton.get_bone_rest(bone_left_leg).basis.get_rotation_quaternion()
+		if bone_right_leg != -1:
+			rest_right_leg = soldier_skeleton.get_bone_rest(bone_right_leg).basis.get_rotation_quaternion()
+		if bone_left_arm != -1:
+			rest_left_arm = soldier_skeleton.get_bone_rest(bone_left_arm).basis.get_rotation_quaternion()
+		if bone_right_arm != -1:
+			rest_right_arm = soldier_skeleton.get_bone_rest(bone_right_arm).basis.get_rotation_quaternion()
 		var bone_attach = BoneAttachment3D.new()
 		bone_attach.name = "RightHandAttachment"
 		bone_attach.bone_name = "mixamorig_RightHand_037"
