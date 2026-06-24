@@ -133,6 +133,8 @@ func _make_audio_player(max_db: float) -> AudioStreamPlayer3D:
 func _process(delta: float) -> void:
 	if not visible:
 		return
+	if Input.is_action_just_released("shoot"):
+		stop_shoot_sound()
 	_handle_fire(delta)
 	_handle_reload(delta)
 	_handle_flash_timer(delta)
