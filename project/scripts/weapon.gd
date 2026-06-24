@@ -35,6 +35,7 @@ var flash_timer: float  = 0.0
 # --- Tweens ---
 var recoil_tween: Tween
 var reload_tween: Tween
+var _sound_fade_tween: Tween
 
 # --- Cached Audio Streams ---
 var _snd_shoot:   AudioStream
@@ -131,6 +132,8 @@ func _make_audio_player(max_db: float) -> AudioStreamPlayer3D:
 
 
 func _process(delta: float) -> void:
+	if not visible:
+		return
 	_handle_fire(delta)
 	_handle_reload(delta)
 	_handle_flash_timer(delta)
@@ -169,9 +172,7 @@ func _fire() -> void:
 	fire_timer = fire_rate
 	ammo_changed.emit(current_ammo, reserve_ammo)
 
-	_audio_shoot.stream = _snd_shoot
-	_audio_shoot.pitch_scale = randf_range(0.95, 1.05)
-	_audio_shoot.play()
+	_play_shoot_sound()
 
 	# Alert enemies of gunshot
 	var player_node = get_parent().get_parent().get_parent()
@@ -446,3 +447,45 @@ func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
 func upgrade_damage(amount: float) -> void:
 	damage += amount
 	print("Weapon damage upgraded to: ", damage)
+
+
+func _play_shoot_sound() -> void:
+	if _sound_fade_tween and _sound_fade_tween.is_running():
+		_sound_fade_tween.kill()
+
+	_audio_shoot.volume_db = 4.0
+	if _audio_shoot.playing:
+		_audio_shoot.stop()
+
+	_audio_shoot.stream = _snd_shoot
+	_audio_shoot.pitch_scale = randf_range(0.9, 1.1)
+	_audio_shoot.play()
+
+	# Determine cutoff time based on weapon type to prevent playing the long tail/reverb
+	var cutoff_time := 0.35
+	var lower_name := weapon_name.to_lower()
+	if lower_name.contains("shotgun"):
+		cutoff_time = 0.55
+	elif lower_name.contains("sniper") or lower_name.contains("awp"):
+		cutoff_time = 0.8
+	elif lower_name.contains("rocket") or lower_name.contains("launcher"):
+		cutoff_time = 1.0
+	elif lower_name.contains("mac10") or lower_name.contains("smg"):
+		cutoff_time = 0.25
+	elif lower_name.contains("pistol"):
+		cutoff_time = 0.35
+	else: # default rifle/pew
+		cutoff_time = 0.3
+
+	# Schedule fade out and stop
+	_sound_fade_tween = create_tween()
+	_sound_fade_tween.tween_interval(cutoff_time - 0.08)
+	_sound_fade_tween.tween_property(_audio_shoot, "volume_db", -40.0, 0.08)
+	_sound_fade_tween.tween_callback(_audio_shoot.stop)
+
+
+func stop_shoot_sound() -> void:
+	if _sound_fade_tween and _sound_fade_tween.is_running():
+		_sound_fade_tween.kill()
+	if _audio_shoot:
+		_audio_shoot.stop()

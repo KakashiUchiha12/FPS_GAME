@@ -170,6 +170,8 @@ func _show_weapon(index: int) -> void:
 			w.fire_timer = maxf(w.fire_timer, 0.25)
 		else:
 			w.visible = false
+			if w.has_method("stop_shoot_sound"):
+				w.stop_shoot_sound()
 			# Cancel reloading on inactive weapon
 			if w.has_method("cancel_reload") and w.is_reloading:
 				w.cancel_reload()
