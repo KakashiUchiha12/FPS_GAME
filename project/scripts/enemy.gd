@@ -10,10 +10,11 @@ extends CharacterBody3D
 
 const SoundGen := preload("res://scripts/sound_generator.gd")
 
-enum State { IDLE, PATROL, ALERT, CHASE, ATTACK, DEAD }
+enum State { IDLE, PATROL, ALERT, CHASE, ATTACK, SEARCH, DEAD }
 
 @export_group("Stats")
-@export var max_health: float    = 90.0
+@export_enum("Basic", "Strong", "Boss") var enemy_type: String = "Basic"
+@export var max_health: float    = 100.0
 @export var move_speed: float    = 4.0
 @export var chase_speed: float   = 6.2
 @export var attack_damage: float = 24.0
@@ -46,6 +47,10 @@ var original_color: Color
 var start_position: Vector3
 var random_patrol_target: Vector3 = Vector3.ZERO
 var random_patrol_timer: float = 0.0
+var last_known_player_position: Vector3 = Vector3.ZERO
+var search_timer: float = 0.0
+var health_bar_progress: ProgressBar
+var health_bar_sprite: Sprite3D
 
 # --- Soldier Skin Nodes ---
 var soldier_instance: Node3D = null
@@ -79,10 +84,10 @@ var walk_timer: float = 0.0
 
 # --- Audio ---
 var _audio: AudioStreamPlayer3D
-var _snd_grunt: AudioStreamWAV
-var _snd_die:   AudioStreamWAV
-var _snd_alert: AudioStreamWAV
-var _snd_shoot: AudioStreamWAV
+var _snd_grunt: AudioStream
+var _snd_die:   AudioStream
+var _snd_alert: AudioStream
+var _snd_shoot: AudioStream
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
@@ -90,10 +95,21 @@ signal enemy_died
 
 
 func _ready() -> void:
+	if enemy_type == "Basic":
+		max_health = 100.0
+	elif enemy_type == "Strong":
+		max_health = 200.0
+	elif enemy_type == "Boss":
+		max_health = 500.0
+		scale = Vector3.ONE * 1.5
+
 	health = max_health
 	player = get_tree().get_first_node_in_group("player")
 	start_position = global_position
 	base_visuals_y = visuals.position.y
+
+	# Setup floating health bar
+	_setup_health_bar()
 
 	# Make unique material so color changes don't affect all enemies
 	if torso:
@@ -121,6 +137,42 @@ func _ready() -> void:
 		_set_state(State.IDLE)
 
 
+func _setup_health_bar() -> void:
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(140, 24)
+	viewport.transparent_bg = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(viewport)
+	
+	health_bar_progress = ProgressBar.new()
+	health_bar_progress.size = Vector2(140, 24)
+	health_bar_progress.value = 100.0
+	health_bar_progress.show_percentage = false
+	
+	var style_bg = StyleBoxFlat.new()
+	style_bg.bg_color = Color(0.15, 0.05, 0.05, 0.7)
+	style_bg.border_width_left = 1
+	style_bg.border_width_right = 1
+	style_bg.border_width_top = 1
+	style_bg.border_width_bottom = 1
+	style_bg.border_color = Color(0.4, 0.1, 0.1, 1.0)
+	
+	var style_fg = StyleBoxFlat.new()
+	style_fg.bg_color = Color(0.85, 0.15, 0.15, 1.0)
+	
+	health_bar_progress.add_theme_stylebox_override("background", style_bg)
+	health_bar_progress.add_theme_stylebox_override("fill", style_fg)
+	viewport.add_child(health_bar_progress)
+	
+	health_bar_sprite = Sprite3D.new()
+	health_bar_sprite.billboard = StandardMaterial3D.BILLBOARD_ENABLED
+	health_bar_sprite.position = Vector3(0.0, 2.3, 0.0)
+	health_bar_sprite.texture = viewport.get_texture()
+	health_bar_sprite.transparent = true
+	add_child(health_bar_sprite)
+
+
+
 func _physics_process(delta: float) -> void:
 	if current_state == State.DEAD:
 		return
@@ -134,6 +186,7 @@ func _physics_process(delta: float) -> void:
 		State.ALERT:  _state_alert(delta)
 		State.CHASE:  _state_chase(delta)
 		State.ATTACK: _state_attack(delta)
+		State.SEARCH: _state_search(delta)
 
 	_check_player_visibility()
 	_animate_idle_bob(delta)
@@ -190,14 +243,26 @@ func _state_chase(_delta: float) -> void:
 	if not player or not player.is_inside_tree():
 		_set_state(State.PATROL)
 		return
+
+	var dist: float = global_position.distance_to(player.global_position)
+
+	if not _has_line_of_sight():
+		last_known_player_position = player.global_position
+		search_timer = 6.0
+		_set_state(State.SEARCH)
+		return
+
+	if dist > detection_range * 1.5:
+		last_known_player_position = player.global_position
+		search_timer = 4.0
+		_set_state(State.SEARCH)
+		return
+
 	nav_agent.target_position = player.global_position
 	_move_toward_target(chase_speed)
 
-	var dist: float = global_position.distance_to(player.global_position)
-	if dist <= attack_range and _has_line_of_sight():
+	if dist <= attack_range:
 		_set_state(State.ATTACK)
-	elif dist > detection_range * 1.5:
-		_set_state(State.PATROL)
 
 
 func _state_attack(delta: float) -> void:
@@ -205,10 +270,14 @@ func _state_attack(delta: float) -> void:
 		_set_state(State.PATROL)
 		return
 
-	# If we lose line of sight, immediately revert to chase to run after the player!
 	var dist: float = global_position.distance_to(player.global_position)
 	if not _has_line_of_sight() or dist > attack_range * 1.1:
-		_set_state(State.CHASE)
+		if not _has_line_of_sight():
+			last_known_player_position = player.global_position
+			search_timer = 6.0
+			_set_state(State.SEARCH)
+		else:
+			_set_state(State.CHASE)
 		return
 
 	# Face the player
@@ -230,6 +299,36 @@ func _state_attack(delta: float) -> void:
 		_do_shoot()
 
 
+func _state_search(delta: float) -> void:
+	if not player or not player.is_inside_tree():
+		_set_state(State.PATROL)
+		return
+
+	search_timer -= delta
+	if search_timer <= 0:
+		_set_state(State.PATROL)
+		return
+
+	nav_agent.target_position = last_known_player_position
+	_move_toward_target(chase_speed * 0.7)
+
+	if nav_agent.is_navigation_finished() or global_position.distance_to(last_known_player_position) < 1.5:
+		var map = nav_agent.get_navigation_map()
+		if map.is_valid():
+			var random_offset = Vector3(randf_range(-4.0, 4.0), 0.0, randf_range(-4.0, 4.0))
+			var test_target = last_known_player_position + random_offset
+			last_known_player_position = NavigationServer3D.map_get_closest_point(map, test_target)
+
+
+func hear_gunshot(pos: Vector3) -> void:
+	if current_state != State.DEAD:
+		last_known_player_position = pos
+		search_timer = 5.0
+		if current_state in [State.IDLE, State.PATROL, State.SEARCH]:
+			alert_timer = 0.4
+			_set_state(State.ALERT)
+
+
 func _do_shoot() -> void:
 	if not player or current_state == State.DEAD or not _has_line_of_sight():
 		return
@@ -244,14 +343,13 @@ func _do_shoot() -> void:
 
 	# Spawn visual tracer from muzzle to player
 	var start_pos: Vector3 = muzzle_flash.global_position if muzzle_flash else global_position + Vector3(0.3, 0.8, -0.6)
-	var end_pos: Vector3 = player.global_position + Vector3(0.0, randf_range(0.6, 1.4), 0.0) # Aim at chest/head
+	var end_pos: Vector3 = player.global_position + Vector3(0.0, randf_range(0.6, 1.4), 0.0)
 
 	# Inaccuracy check
-	var hit_chance: float = 0.38 # 38% accuracy
+	var hit_chance: float = 0.38
 	var is_hit: bool = randf() < hit_chance
 
 	if not is_hit:
-		# Divert the bullet away
 		end_pos += Vector3(randf_range(-1.5, 1.5), randf_range(-1.5, 1.5), randf_range(-1.5, 1.5))
 
 	_spawn_tracer(start_pos, end_pos)
@@ -314,11 +412,18 @@ func _check_player_visibility() -> void:
 	var dist: float = global_position.distance_to(player.global_position)
 	if dist > detection_range:
 		return
+
+	# Require line of sight to see player
+	if not _has_line_of_sight():
+		return
+
 	var dir: Vector3 = (player.global_position - global_position).normalized()
 	var angle: float = rad_to_deg(transform.basis.z.angle_to(-dir))
-	if angle < field_of_view / 2.0:
-		if current_state in [State.IDLE, State.PATROL]:
-			alert_timer = 0.5
+	
+	# Proximity detection (hear/sense player if extremely close, even out of FOV)
+	if angle < field_of_view / 2.0 or dist < 4.0:
+		if current_state in [State.IDLE, State.PATROL, State.SEARCH]:
+			alert_timer = 0.4
 			_set_state(State.ALERT)
 		elif current_state == State.ALERT:
 			_set_state(State.CHASE)
@@ -326,7 +431,6 @@ func _check_player_visibility() -> void:
 
 func _move_toward_target(speed: float) -> void:
 	var next: Vector3 = nav_agent.get_next_path_position()
-	# Fallback if navigation region is not baked or path fails:
 	if next.is_equal_approx(global_position) or nav_agent.is_navigation_finished():
 		next = nav_agent.target_position
 
@@ -344,7 +448,7 @@ func _set_state(new_state: State) -> void:
 		_play_sound(_snd_alert, 0.0)
 
 
-func _play_sound(stream: AudioStreamWAV, db: float = 0.0) -> void:
+func _play_sound(stream: AudioStream, db: float = 0.0) -> void:
 	if _audio:
 		_audio.stream = stream
 		_audio.max_db = db
@@ -358,9 +462,14 @@ func take_damage(amount: float) -> void:
 		return
 	health -= amount
 
+	# Update health bar progress flatly or via tween
+	if health_bar_progress:
+		var tween = create_tween()
+		tween.tween_property(health_bar_progress, "value", (health / max_health) * 100.0, 0.2)
+
 	_animate_hit_flash()
 
-	if current_state in [State.IDLE, State.PATROL]:
+	if current_state in [State.IDLE, State.PATROL, State.SEARCH]:
 		_set_state(State.CHASE)
 
 	if health <= 0.0:
@@ -373,9 +482,12 @@ func take_damage(amount: float) -> void:
 func _die() -> void:
 	_set_state(State.DEAD)
 	velocity = Vector3.ZERO
+	if health_bar_sprite:
+		health_bar_sprite.visible = false
 	_play_sound(_snd_die, 3.0)
 	_animate_death()
 	enemy_died.emit()
+
 
 
 # ── Animations ────────────────────────────────────────────────────────────────
@@ -542,13 +654,41 @@ func _setup_soldier_skin() -> void:
 		bone_attach.bone_name = "mixamorig_RightHand_037"
 		soldier_skeleton.add_child(bone_attach)
 		
-		var gun = $Visuals/RightArm/Gun
-		if gun:
-			gun.get_parent().remove_child(gun)
-			bone_attach.add_child(gun)
-			gun.scale = Vector3(100.0, 100.0, 100.0)
-			gun.position = weapon_pos_offset
-			gun.rotation = weapon_rot_offset
+		# Instead of the robot's boxy gun, we load the real AK-47 model for the soldier skin
+		var custom_gun_scene = load("res://assets/weapons/ak47.glb")
+		if custom_gun_scene:
+			var custom_gun = custom_gun_scene.instantiate()
+			custom_gun.name = "Model"
+			
+			var gun_wrapper := Node3D.new()
+			gun_wrapper.name = "Gun"
+			gun_wrapper.add_child(custom_gun)
+			
+			# Rotate the AK-47 model inside the wrapper to point forward along -Z
+			custom_gun.rotation = Vector3(0.0, PI/2, 0.0)
+			custom_gun.scale = Vector3.ONE
+			custom_gun.position = Vector3.ZERO
+			
+			# Re-parent and position muzzle flash to the end of the AK-47 barrel
+			var old_flash = $Visuals/RightArm/Gun/MuzzleFlash
+			if old_flash:
+				old_flash.get_parent().remove_child(old_flash)
+				gun_wrapper.add_child(old_flash)
+				old_flash.position = Vector3(0.0, 0.02, -0.27)
+				old_flash.scale = Vector3.ONE
+				old_flash.rotation = Vector3.ZERO
+				muzzle_flash = old_flash
+				
+			var old_gun = $Visuals/RightArm/Gun
+			if old_gun:
+				old_gun.get_parent().remove_child(old_gun)
+				old_gun.queue_free()
+				
+			bone_attach.add_child(gun_wrapper)
+			gun_wrapper.scale = Vector3(100.0, 100.0, 100.0)
+			# Align with the Right Hand bone (mixamorig_RightHand_037)
+			gun_wrapper.position = Vector3(0.0, 3.5, 6.0)
+			gun_wrapper.rotation = Vector3(0.0, -PI/2, PI/2)
 	
 	_setup_soldier_materials(soldier_instance)
 	

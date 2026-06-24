@@ -13,8 +13,42 @@ var hitmarker_ref: Control = null
 var upgrade_label: Label = null
 var last_health: float = 100.0
 
+# --- Reload HUD Variables ---
+var is_reloading_hud: bool = false
+var reload_total_time: float = 0.0
+var reload_time_left: float = 0.0
+var reload_progress: ProgressBar = null
+
+
 func _ready() -> void:
 	reload_label.visible = false
+	
+	# Instantiate reload progress bar programmatically
+	reload_progress = ProgressBar.new()
+	reload_progress.size = Vector2(160, 16)
+	reload_progress.show_percentage = false
+	reload_progress.visible = false
+	
+	# Center it below the center of the screen
+	reload_progress.set_anchors_preset(Control.PRESET_CENTER)
+	reload_progress.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	reload_progress.grow_vertical = Control.GROW_DIRECTION_BOTH
+	reload_progress.position = Vector2(-80, 50)
+	
+	var style_bg = StyleBoxFlat.new()
+	style_bg.bg_color = Color(0.1, 0.1, 0.1, 0.5)
+	style_bg.border_width_left = 1
+	style_bg.border_width_right = 1
+	style_bg.border_width_top = 1
+	style_bg.border_width_bottom = 1
+	style_bg.border_color = Color(0.3, 0.3, 0.3, 0.8)
+	
+	var style_fg = StyleBoxFlat.new()
+	style_fg.bg_color = Color(0.2, 0.6, 1.0, 0.95)
+	
+	reload_progress.add_theme_stylebox_override("background", style_bg)
+	reload_progress.add_theme_stylebox_override("fill", style_fg)
+	add_child(reload_progress)
 	
 	# Instantiate Hitmarker programmatically
 	var hitmarker_script = load("res://scripts/hitmarker.gd")
@@ -57,6 +91,7 @@ func _ready() -> void:
 		player.ammo_changed.connect(_on_ammo_changed)
 		player.reloading_started.connect(_on_reloading)
 		player.enemy_hit.connect(_on_enemy_hit)
+		player.reload_cancelled.connect(_on_reload_cancelled)
 		
 		# Set initial weapon HUD readings
 		if player.weapons.size() > player.current_weapon_index:
@@ -67,6 +102,17 @@ func _ready() -> void:
 	var gm = get_parent().get_node_or_null("LevelManager")
 	if gm:
 		gm.upgrade_unlocked.connect(_on_upgrade_unlocked)
+
+
+func _process(delta: float) -> void:
+	if is_reloading_hud:
+		reload_time_left -= delta
+		if reload_time_left > 0:
+			var progress_pct = (1.0 - (reload_time_left / reload_total_time)) * 100.0
+			if reload_progress:
+				reload_progress.value = progress_pct
+		else:
+			_hide_reload_ui()
 
 
 func _on_health_changed(current: float, maximum: float) -> void:
@@ -87,13 +133,33 @@ func _on_aim_changed(aiming: bool) -> void:
 
 
 func _on_ammo_changed(current: int, reserve: int) -> void:
-	ammo_label.text = "%d  /  %d" % [current, reserve]
+	var active_weapon_name := "Weapon"
+	if player and player.weapons.size() > player.current_weapon_index:
+		var w = player.weapons[player.current_weapon_index]
+		active_weapon_name = w.weapon_name
+	ammo_label.text = "%s: %d  /  %d" % [active_weapon_name, current, reserve]
 
 
 func _on_reloading(reload_time: float) -> void:
+	is_reloading_hud = true
+	reload_total_time = reload_time
+	reload_time_left = reload_time
 	reload_label.visible = true
-	await get_tree().create_timer(reload_time).timeout
+	if reload_progress:
+		reload_progress.value = 0.0
+		reload_progress.visible = true
+
+
+func _on_reload_cancelled() -> void:
+	_hide_reload_ui()
+
+
+func _hide_reload_ui() -> void:
+	is_reloading_hud = false
 	reload_label.visible = false
+	if reload_progress:
+		reload_progress.visible = false
+
 
 
 func _on_enemy_hit() -> void:

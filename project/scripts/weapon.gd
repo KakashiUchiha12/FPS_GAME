@@ -37,11 +37,12 @@ var recoil_tween: Tween
 var reload_tween: Tween
 
 # --- Cached Audio Streams ---
-var _snd_shoot:   AudioStreamWAV
-var _snd_impact:  AudioStreamWAV
-var _snd_reload1: AudioStreamWAV
-var _snd_reload2: AudioStreamWAV
-var _snd_empty:   AudioStreamWAV
+var _snd_shoot:   AudioStream
+var _snd_impact:  AudioStream
+var _snd_reload:  AudioStream
+var _snd_reload1: AudioStream # procedural fallback
+var _snd_reload2: AudioStream # procedural fallback
+var _snd_empty:   AudioStream
 
 # --- Node References ---
 var muzzle_flash_mesh: MeshInstance3D
@@ -59,7 +60,6 @@ signal reloading_started(time: float)
 
 func _ready() -> void:
 	current_ammo    = mag_size
-	reserve_ammo    = 999
 	original_position = position
 	original_rotation = rotation
 
@@ -71,24 +71,48 @@ func _ready() -> void:
 	if muzzle_flash_mesh: muzzle_flash_mesh.visible = false
 	if muzzle_light:      muzzle_light.visible = false
 
-	# Generate sounds
-	var name_upper := weapon_name.to_upper()
-	if name_upper.contains("SHOTGUN"):
-		_snd_shoot   = SoundGen.gunshot_shotgun()
-	elif name_upper.contains("SNIPER") or name_upper.contains("AWP"):
-		_snd_shoot   = SoundGen.gunshot_sniper()
-	elif name_upper.contains("ROCKET") or name_upper.contains("LAUNCHER"):
-		_snd_shoot   = SoundGen.gunshot_rocket()
-	elif name_upper.contains("MAC10") or name_upper.contains("SMG"):
-		_snd_shoot   = SoundGen.gunshot_smg()
-	elif name_upper.contains("PISTOL"):
-		_snd_shoot   = SoundGen.gunshot_pistol()
+	# Load sounds dynamically from folder
+	var name_lower := weapon_name.to_lower()
+	var shoot_stream: AudioStream = null
+
+	if name_lower.contains("shotgun"):
+		shoot_stream = load("res://assets/sounds/shotgun_shoot.mp3")
+	elif name_lower.contains("sniper") or name_lower.contains("awp"):
+		shoot_stream = load("res://assets/sounds/sniper_shoot.mp3")
+	elif name_lower.contains("rocket") or name_lower.contains("launcher"):
+		shoot_stream = load("res://assets/sounds/rocket_shoot.mp3")
+	elif name_lower.contains("mac10") or name_lower.contains("smg"):
+		shoot_stream = load("res://assets/sounds/smg_shoot.mp3")
+	elif name_lower.contains("pistol"):
+		shoot_stream = load("res://assets/sounds/pistol_shoot.mp3")
 	else:
-		_snd_shoot   = SoundGen.gunshot()
-	
+		shoot_stream = load("res://assets/sounds/rifle_shoot.mp3")
+
+	if shoot_stream:
+		_snd_shoot = shoot_stream
+	else:
+		# Fallback to procedural SoundGen
+		if name_lower.contains("shotgun"):
+			_snd_shoot = SoundGen.gunshot_shotgun()
+		elif name_lower.contains("sniper") or name_lower.contains("awp"):
+			_snd_shoot = SoundGen.gunshot_sniper()
+		elif name_lower.contains("rocket") or name_lower.contains("launcher"):
+			_snd_shoot = SoundGen.gunshot_rocket()
+		elif name_lower.contains("mac10") or name_lower.contains("smg"):
+			_snd_shoot = SoundGen.gunshot_smg()
+		elif name_lower.contains("pistol"):
+			_snd_shoot = SoundGen.gunshot_pistol()
+		else:
+			_snd_shoot = SoundGen.gunshot()
+
+	var reload_stream = load("res://assets/sounds/reload.mp3")
+	if reload_stream:
+		_snd_reload = reload_stream
+	else:
+		_snd_reload1 = SoundGen.reload_click()
+		_snd_reload2 = SoundGen.reload_mag()
+
 	_snd_impact  = SoundGen.impact_spark()
-	_snd_reload1 = SoundGen.reload_click()
-	_snd_reload2 = SoundGen.reload_mag()
 	_snd_empty   = SoundGen.empty_click()
 
 	# Create audio players
@@ -127,22 +151,33 @@ func _handle_fire(delta: float) -> void:
 		should_fire = Input.is_action_just_pressed("shoot")
 
 	if should_fire and fire_timer <= 0:
-		_fire()
+		if current_ammo > 0:
+			_fire()
+		elif not is_reloading and reserve_ammo > 0:
+			_start_reload()
+		else:
+			_audio_shoot.stream = _snd_empty
+			_audio_shoot.play()
+			fire_timer = fire_rate
 
 	if Input.is_action_just_pressed("reload") and current_ammo < mag_size and reserve_ammo > 0:
 		_start_reload()
 
 
 func _fire() -> void:
-	# Unlimited ammo: current_ammo stays at mag_size, reserve stays at 999
-	current_ammo = mag_size
-	reserve_ammo = 999
+	current_ammo -= 1
 	fire_timer = fire_rate
 	ammo_changed.emit(current_ammo, reserve_ammo)
 
 	_audio_shoot.stream = _snd_shoot
 	_audio_shoot.pitch_scale = randf_range(0.95, 1.05)
 	_audio_shoot.play()
+
+	# Alert enemies of gunshot
+	var player_node = get_parent().get_parent().get_parent()
+	if player_node and player_node.has_method("alert_enemies_of_shot"):
+		player_node.alert_enemies_of_shot()
+
 
 	# Raycast (with multiple pellets if shotgun)
 	if raycast:
@@ -163,21 +198,82 @@ func _fire() -> void:
 				var point: Vector3 = raycast.get_collision_point()
 				var normal: Vector3 = raycast.get_collision_normal()
 
-				if hit.has_method("take_damage"):
-					hit.take_damage(damage)
-					hit_registered = true
-					_spawn_damage_number(damage, point)
+				var is_rocket := weapon_name.to_lower().contains("rocket") or weapon_name.to_lower().contains("launcher")
+
+				if hit.has_method("take_damage") or is_rocket:
+					if is_rocket:
+						_apply_explosion_splash(point)
+						hit_registered = true
+					else:
+						hit.take_damage(damage)
+						hit_registered = true
+						_spawn_damage_number(damage, point)
 
 				_spawn_impact(point, normal)
 
 		if hit_registered:
 			# WeaponHolder -> Camera3D -> Head -> Player
-			var player_node = get_parent().get_parent().get_parent()
 			if player_node and player_node.has_method("notify_enemy_hit"):
 				player_node.notify_enemy_hit()
 
 	_show_muzzle_flash()
 	_apply_recoil_animation()
+
+	# Auto reload sniper and rocket launcher, or any gun when completely empty
+	if (weapon_name.to_lower().contains("sniper") or weapon_name.to_lower().contains("awp") or \
+		weapon_name.to_lower().contains("rocket") or weapon_name.to_lower().contains("launcher") or \
+		current_ammo <= 0) and reserve_ammo > 0:
+		get_tree().create_timer(0.15).timeout.connect(func():
+			if is_inside_tree() and not is_reloading and current_ammo < mag_size:
+				_start_reload()
+		)
+
+
+func _apply_explosion_splash(point: Vector3) -> void:
+	_spawn_explosion_vfx(point)
+	var enemies = get_tree().get_nodes_in_group("enemy")
+	for enemy in enemies:
+		if is_instance_valid(enemy) and enemy.has_method("take_damage"):
+			var dist = enemy.global_position.distance_to(point)
+			var splash_radius := 6.0
+			if dist < splash_radius:
+				var falloff = 1.0 - (dist / splash_radius)
+				var splash_dmg = damage * falloff
+				if splash_dmg > 10.0:
+					enemy.take_damage(splash_dmg)
+					_spawn_damage_number(splash_dmg, enemy.global_position + Vector3.UP)
+
+
+func _spawn_explosion_vfx(pos: Vector3) -> void:
+	var exp_audio := AudioStreamPlayer3D.new()
+	exp_audio.stream = _snd_shoot
+	exp_audio.max_db = 4.0
+	get_tree().root.add_child(exp_audio)
+	exp_audio.global_position = pos
+	exp_audio.play()
+
+	var particles := CPUParticles3D.new()
+	get_tree().root.add_child(particles)
+	particles.global_position = pos
+	particles.emitting = true
+	particles.one_shot = true
+	particles.explosiveness = 0.95
+	particles.amount = 40
+	particles.lifetime = 0.8
+	particles.spread = 180.0
+	particles.gravity = Vector3(0, 1.5, 0)
+	particles.initial_velocity_min = 4.0
+	particles.initial_velocity_max = 10.0
+	particles.scale_amount_min = 0.1
+	particles.scale_amount_max = 0.4
+	particles.color = Color(1.0, 0.45, 0.1, 1.0)
+
+	get_tree().create_timer(1.0).timeout.connect(func():
+		if is_instance_valid(particles):
+			particles.queue_free()
+		if is_instance_valid(exp_audio):
+			exp_audio.queue_free()
+	)
 
 
 func _spawn_damage_number(amount: float, pos: Vector3) -> void:
@@ -217,12 +313,28 @@ func _start_reload() -> void:
 	reloading_started.emit(reload_time)
 
 	# Play reload sounds
-	_audio_reload.stream = _snd_reload1
-	_audio_reload.play()
-	_play_reload_part2()
+	if _snd_reload:
+		_audio_reload.stream = _snd_reload
+		_audio_reload.play()
+	else:
+		_audio_reload.stream = _snd_reload1
+		_audio_reload.play()
+		_play_reload_part2()
 
 	# Trigger reload animation
 	_apply_reload_animation()
+
+
+func cancel_reload() -> void:
+	if is_reloading:
+		is_reloading = false
+		reload_timer = 0.0
+		if reload_tween and reload_tween.is_running():
+			reload_tween.kill()
+		if _audio_reload:
+			_audio_reload.stop()
+		position = original_position
+		rotation = original_rotation
 
 
 func _play_reload_part2() -> void:
@@ -230,6 +342,7 @@ func _play_reload_part2() -> void:
 	if is_reloading:
 		_audio_reload.stream = _snd_reload2
 		_audio_reload.play()
+
 
 
 func _apply_reload_animation() -> void:

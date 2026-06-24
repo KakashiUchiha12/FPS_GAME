@@ -28,7 +28,7 @@ var health: float = max_health
 var is_dead: bool = false
 
 # --- Footsteps ---
-var _footstep_snd: AudioStreamWAV
+var _footstep_snd: AudioStream
 var _footstep_audio: AudioStreamPlayer3D
 var _footstep_timer: float = 0.0
 var _footstep_interval: float = 0.45
@@ -57,6 +57,7 @@ signal aim_changed(aiming: bool)
 signal ammo_changed(current: int, reserve: int)
 signal reloading_started(time: float)
 signal enemy_hit
+signal reload_cancelled
 
 
 func _ready() -> void:
@@ -86,11 +87,17 @@ func _ready() -> void:
 	# Initialize weapons
 	weapons.clear()
 	for child in weapon_holder.get_children():
-		weapons.append(child)
+		if "weapon_name" in child:
+			weapons.append(child)
 	_show_weapon(0)
 	
-	# Initialize footsteps
-	_footstep_snd = SoundGen.footstep()
+	# Initialize footsteps using custom sound file if available
+	var fs_loaded = load("res://assets/sounds/footsteps.mp3")
+	if fs_loaded:
+		_footstep_snd = fs_loaded
+	else:
+		_footstep_snd = SoundGen.footstep()
+		
 	_footstep_audio = AudioStreamPlayer3D.new()
 	_footstep_audio.max_db = -4.0 # Keep footsteps subtler than gunfire
 	add_child(_footstep_audio)
@@ -158,8 +165,16 @@ func _show_weapon(index: int) -> void:
 			ammo_changed.emit(w.current_ammo, w.reserve_ammo)
 			if w.is_reloading:
 				reloading_started.emit(w.reload_timer)
+				
+			# Add a brief delay so player cannot fire instantly on switch
+			w.fire_timer = maxf(w.fire_timer, 0.25)
 		else:
 			w.visible = false
+			# Cancel reloading on inactive weapon
+			if w.has_method("cancel_reload") and w.is_reloading:
+				w.cancel_reload()
+				reload_cancelled.emit()
+				
 			# Disconnect from inactive weapons to avoid duplicate signal handlers
 			if w.ammo_changed.is_connected(_on_weapon_ammo_changed):
 				w.ammo_changed.disconnect(_on_weapon_ammo_changed)
@@ -177,6 +192,16 @@ func _on_weapon_reloading(time: float) -> void:
 
 func notify_enemy_hit() -> void:
 	enemy_hit.emit()
+
+
+func alert_enemies_of_shot() -> void:
+	var enemies = get_tree().get_nodes_in_group("enemy")
+	for enemy in enemies:
+		if is_instance_valid(enemy) and enemy.has_method("hear_gunshot"):
+			var dist = enemy.global_position.distance_to(global_position)
+			if dist < 35.0: # 35 meters hearing range
+				enemy.hear_gunshot(global_position)
+
 
 
 func _physics_process(delta: float) -> void:
@@ -338,9 +363,9 @@ func _instantiate_raw_glb_weapon(file_path: String) -> void:
 	if not mesh_scene:
 		return
 		
-	var weapon_node := Node3D.new()
+	var weapon_script := load("res://scripts/weapon.gd")
+	var weapon_node = weapon_script.new()
 	weapon_node.name = base_name
-	weapon_node.set_script(load("res://scripts/weapon.gd"))
 	
 	# Configure default parameters based on filename keyword
 	var lower_name := base_name.to_lower()
@@ -392,18 +417,58 @@ func _instantiate_raw_glb_weapon(file_path: String) -> void:
 	mesh_inst.name = "Model"
 	weapon_node.add_child(mesh_inst)
 	
-	# Scale and position to sit naturally in hand
-	mesh_inst.scale = Vector3(0.3, 0.3, 0.3)
-	mesh_inst.position = Vector3(0.0, -0.05, -0.15)
-	mesh_inst.rotation = Vector3(1.5708, 1.5708, 0.0) # Rotate 90 degrees on X and Y to point forward and stay upright
+	# Scale and position to sit naturally in hand based on model type
+	var scale_factor := 0.95
+	var pos_offset := Vector3(0.0, -0.05, 0.0)
+	
+	if lower_name.contains("mac10"):
+		scale_factor = 1.05
+		pos_offset = Vector3(0.0, -0.03, 0.05)
+	elif lower_name.contains("awp") or lower_name.contains("sniper"):
+		scale_factor = 0.8
+		pos_offset = Vector3(0.0, -0.05, -0.15)
+	elif lower_name.contains("rocket") or lower_name.contains("launcher"):
+		scale_factor = 0.8
+		pos_offset = Vector3(0.0, -0.08, -0.1)
+	elif lower_name.contains("shotgun"):
+		scale_factor = 0.9
+		pos_offset = Vector3(0.0, -0.05, -0.05)
+		
+	mesh_inst.scale = Vector3.ONE * scale_factor
+	mesh_inst.position = pos_offset
+	# Rotate the weapon 90 degrees clockwise around Y to point forward (along -Z) instead of left (along -X)
+	mesh_inst.rotation = Vector3(0.0, PI/2, 0.0)
+	
+	# Get AABB of the mesh to calculate muzzle position dynamically
+	var aabb = _get_mesh_aabb(mesh_inst)
+	var muzzle_z = aabb.position.x * scale_factor + pos_offset.z
+	var muzzle_y = (aabb.position.y + aabb.size.y * 0.5) * scale_factor + pos_offset.y
 	
 	var muzzle_node := Node3D.new()
 	muzzle_node.name = "MuzzlePoint"
-	muzzle_node.position = Vector3(0.0, 0.0, -0.5)
+	muzzle_node.position = Vector3(0.0, muzzle_y, muzzle_z)
 	weapon_node.add_child(muzzle_node)
 	
 	weapon_holder.add_child(weapon_node)
 	print("Dynamically registered raw GLB weapon: %s | Mesh Rot: %s | Mesh Global Rot: %s" % [base_name, mesh_inst.rotation, mesh_inst.global_rotation])
+
+
+func _get_mesh_aabb(node: Node) -> AABB:
+	var aabb = AABB()
+	var first = true
+	var queue = [node]
+	while queue.size() > 0:
+		var curr = queue.pop_front()
+		if curr is MeshInstance3D and curr.mesh:
+			var child_aabb = curr.mesh.get_aabb()
+			if first:
+				aabb = child_aabb
+				first = false
+			else:
+				aabb = aabb.merge(child_aabb)
+		for child in curr.get_children():
+			queue.push_back(child)
+	return aabb
 
 
 func _instantiate_tscn_weapon(file_path: String) -> void:
